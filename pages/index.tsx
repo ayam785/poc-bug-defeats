@@ -17,7 +17,7 @@ export default function TodoApp() {
 
   // ❌ BUG 1 — intentionnellement cassé : on ne fait rien avec l'id
   // La todo n'est jamais mise à jour comme "done"
-  const handleCheck = (id) => {
+  const handleCheck = (id: string) => {
     // BUG: setTodos is never called — the todo stays unchanged
     console.log("Check clicked for id:", id, "— but nothing happens (bug)");
   };
@@ -78,7 +78,7 @@ export default function TodoApp() {
               >
                 {/* BUG 1: onClick calls handleCheck which does nothing */}
                 <button
-                  onClick={() => handleCheck(todo.id)}
+                  onClick={() => handleCheck(todo.id.toString())}
                   className="w-5 h-5 rounded-full border-2 border-[#ccc] group-hover:border-[#1a1a1a] transition-colors flex items-center justify-center flex-shrink-0"
                   title="Cocher cette tâche"
                 >
