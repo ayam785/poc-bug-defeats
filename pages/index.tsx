@@ -2,12 +2,23 @@
 
 import { useState } from "react";
 
+// =============================================
+// BUG 1: L'appel API sur httpstat.us/500 retourne
+// toujours une erreur 500 — la todo n'est jamais
+// marquée comme done car on attend la confirmation
+// =============================================
+// BUG 2: Sur mobile, max-h coupe la liste après 2 items
+// =============================================
+
 export default function TodoApp() {
   const [todos, setTodos] = useState([
     { id: 1, title: "Acheter du pain", done: false },
     { id: 2, title: "Appeler le médecin", done: false },
   ]);
   const [input, setInput] = useState("");
+  // Track loading & error state per todo id
+  const [loadingIds, setLoadingIds] = useState({});
+  const [errorIds, setErrorIds] = useState({});
 
   const handleAdd = () => {
     if (!input.trim()) return;
@@ -15,11 +26,37 @@ export default function TodoApp() {
     setInput("");
   };
 
-  // ❌ BUG 1 — intentionnellement cassé : on ne fait rien avec l'id
-  // La todo n'est jamais mise à jour comme "done"
-  const handleCheck = (id: string) => {
-    // BUG: setTodos is never called — the todo stays unchanged
-    console.log("Check clicked for id:", id, "— but nothing happens (bug)");
+  // ❌ BUG 1 — L'API publique de test retourne toujours 500
+  // On attend la confirmation avant de cocher → elle n'arrive jamais
+  const handleCheck = async (id) => {
+    // Set loading for this todo
+    setLoadingIds((prev) => ({ ...prev, [id]: true }));
+    setErrorIds((prev) => ({ ...prev, [id]: false }));
+
+    try {
+      // httpstat.us/500 is a public test API that always returns HTTP 500
+      const res = await fetch("https://httpbin.org/status/500", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ done: true }),
+      });
+
+      if (!res.ok) {
+        // ❌ API responded with error — we never update the todo
+        throw new Error(`API error: ${res.status}`);
+      }
+
+
+      // ✅ Would only reach here if API succeeded (never happens)
+      setTodos((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, done: true } : t))
+      );
+    } catch (err) {
+      // API failed → mark this todo as errored, leave it unchecked
+      setErrorIds((prev) => ({ ...prev, [id]: true }));
+    } finally {
+      setLoadingIds((prev) => ({ ...prev, [id]: false }));
+    }
   };
 
   return (
@@ -76,20 +113,33 @@ export default function TodoApp() {
                 key={todo.id}
                 className="flex items-center gap-3 px-5 py-4 group hover:bg-[#faf8f4] transition-colors"
               >
-                {/* BUG 1: onClick calls handleCheck which does nothing */}
+                {/* BUG 1: API call always fails → todo never gets checked */}
                 <button
-                  onClick={() => handleCheck(todo.id.toString())}
-                  className="w-5 h-5 rounded-full border-2 border-[#ccc] group-hover:border-[#1a1a1a] transition-colors flex items-center justify-center flex-shrink-0"
+                  onClick={() => handleCheck(todo.id)}
+                  disabled={loadingIds[todo.id]}
+                  className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all disabled:cursor-wait
+                    border-[#ccc] group-hover:border-[#1a1a1a]"
                   title="Cocher cette tâche"
                 >
-                  {/* Circle never gets filled because done is never set to true */}
-                  {todo.done && (
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#1a1a1a]" />
-                  )}
+                  {loadingIds[todo.id] ? (
+                    // Spinner while waiting for API
+                    <span className="w-3 h-3 border-2 border-[#aaa] border-t-[#1a1a1a] rounded-full animate-spin block" />
+                  ) : errorIds[todo.id] ? (
+                    // Error state — API failed
+                    <span className="text-red-500 text-[10px] font-bold leading-none">✕</span>
+                  ) : null}
                 </button>
+
                 <span className="text-sm text-[#1a1a1a] leading-snug flex-1">
                   {todo.title}
                 </span>
+
+                {/* Inline API error message */}
+                {errorIds[todo.id] && (
+                  <span className="text-[11px] text-red-400 italic shrink-0">
+                    Erreur 500
+                  </span>
+                )}
               </li>
             ))}
 
@@ -103,9 +153,10 @@ export default function TodoApp() {
 
       {/* Bug callouts — visible hints for QA */}
       <div className="w-full max-w-md mt-8 space-y-3">
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <span className="font-bold">🐛 Bug #1 —</span> Cliquer sur le bouton
-          rond ne coche pas la tâche. Elle reste visible indéfiniment.
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 leading-relaxed">
+          <span className="font-bold">🐛 Bug #1 —</span> Le clic déclenche un appel
+          API sur <code className="bg-red-100 px-1 rounded font-mono">httpstat.us/500</code> qui
+          retourne toujours <strong>HTTP 500</strong>. La confirmation n'arrive jamais → la tâche reste non cochée.
         </div>
         <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700 sm:hidden">
           <span className="font-bold">🐛 Bug #2 —</span> Sur mobile, seules 2
