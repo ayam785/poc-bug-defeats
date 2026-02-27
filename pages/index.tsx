@@ -9,6 +9,9 @@ import { useState } from "react";
 // =============================================
 // BUG 2: Sur mobile, max-h coupe la liste après 2 items
 // =============================================
+// BUG 3: handleDelete throw une erreur ET n'a pas de finally
+// → le loading de suppression reste à true indéfiniment
+// =============================================
 
 interface Todo {
   id: number;
@@ -27,6 +30,8 @@ export default function TodoApp() {
   const [input, setInput] = useState<string>("");
   const [loadingIds, setLoadingIds] = useState<LoadingMap>({});
   const [errorIds, setErrorIds] = useState<ErrorMap>({});
+  // ❌ BUG 3 — ce loading ne sera jamais remis à false
+  const [deletingIds, setDeletingIds] = useState<LoadingMap>({});
 
   const handleAdd = (): void => {
     if (!input.trim()) return;
@@ -65,6 +70,34 @@ export default function TodoApp() {
     } finally {
       setLoadingIds((prev) => ({ ...prev, [id]: false }));
     }
+  };
+
+  // ❌ BUG 3 — throw est appelé AVANT que setDeletingIds(false) soit atteint
+  // Il n'y a pas de finally → deletingIds[id] reste true pour toujours
+  const handleDelete = async (id: number): Promise<void> => {
+    setDeletingIds((prev) => ({ ...prev, [id]: true }));
+
+    try {
+      const res = await fetch("https://httpbin.org/status/500", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!res.ok) {
+        // ❌ On throw ici — sans finally, le loading ne se reset jamais
+        throw new Error(`Delete API error: ${res.status}`);
+      }
+
+      // Jamais atteint
+      setTodos((prev) => prev.filter((t) => t.id !== id));
+      setDeletingIds((prev) => ({ ...prev, [id]: false }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Erreur inconnue";
+      console.error(`[TodoApp] handleDelete failed for id=${id}:`, message);
+      // ❌ BUG: setDeletingIds(false) oublié dans le catch
+      // Le spinner de suppression tourne indéfiniment
+    }
+    // ❌ Pas de finally — le loading reste bloqué à true
   };
 
   const activeTodos = todos.filter((t): t is Todo => !t.done);
@@ -147,6 +180,33 @@ export default function TodoApp() {
                   Erreur 500
                 </span>
               )}
+
+              {/* BUG 3: croix de suppression — spinner infini après le clic */}
+              <button
+                onClick={() => handleDelete(todo.id)}
+                disabled={deletingIds[todo.id] ?? false}
+                className="ml-1 w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 transition-all
+                  text-[#bbb] hover:text-red-400 hover:bg-red-50 disabled:cursor-not-allowed"
+                title="Supprimer cette tâche"
+              >
+                {deletingIds[todo.id] ? (
+                  // ❌ Ce spinner ne s'arrêtera jamais (pas de finally dans handleDelete)
+                  <span className="w-3 h-3 border-2 border-red-200 border-t-red-500 rounded-full animate-spin block" />
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                )}
+              </button>
             </li>
           ))}
 
@@ -176,6 +236,13 @@ export default function TodoApp() {
         <div className="hidden sm:block rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700">
           <span className="font-bold">🐛 Bug #2 —</span> Réduisez la fenêtre en
           taille mobile pour voir le bug : seules 2 tâches sont visibles.
+        </div>
+        <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 leading-relaxed">
+          <span className="font-bold">🐛 Bug #3 —</span> Cliquer sur la croix
+          déclenche un appel DELETE qui throw une erreur. Sans{" "}
+          <code className="bg-yellow-100 px-1 rounded font-mono">finally</code>,{" "}
+          <code className="bg-yellow-100 px-1 rounded font-mono">deletingIds</code>{" "}
+          n&apos;est jamais remis à <strong>false</strong> → le spinner tourne indéfiniment.
         </div>
       </div>
     </div>
